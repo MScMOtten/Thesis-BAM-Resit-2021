@@ -1,0 +1,532 @@
+---
+title: "Thesis 2021 BAM"
+author: "Michelle Otten"
+date: "11-4-2021"
+output: pdf_document
+---
+
+
+#empty environment
+
+```{r}
+rm(list=ls())
+
+```
+
+#Install packages
+
+```{r}
+library(readr)
+library(stargazer)
+library(dplyr) 
+library(plyr)
+library(ggplot2) 
+library(scales)
+library(GGally) #ggpairs
+library(dagitty) #for causal models
+library(ggdag) #for causal models formatting
+library(sandwich) #for standardizing the standard errors (heteroskedastiscity)
+```
+
+
+#Load data
+
+```{r include=FALSE}
+simdata <- read_delim("Simulatiedataset.csv", 
+    ";", escape_double = FALSE, trim_ws = TRUE)
+View(simdata)
+head(simdata)
+
+```
+
+#Prepare data
+## Feature choices
+
+The following variables will be used to construct the established models:
+
+1 * DEM_Geslacht
+2 * DEM_Leeftijd_peildatum_1_oktober
+3 * RES_Gem_resultaat_geboekt_tm_P1
+4 * MVR_Studiesituatie_Omgeving_hulp
+5 * MVR_Studiesituatie_Ouders_universiteit
+6 * MVR_Studiesituatie_Financien_belemmering
+7 * MVR_Studiesituatie_Uur_per_week_studie
+8 * MVR_Studiesituatie_Reistijd_minuten
+9 * MVR_Studiesituatie_Uur_per_week_nevenactiviteiten_cat
+10 * MVR_Studiesituatie_Uur_per_week_werk
+11 * VOP_Cijfer_economie
+12 * VOP_Cijfer_engels
+13 * VOP_Cijfer_gemiddeld
+14 * VOP_Cijfer_natuurkunde
+15 * VOP_Cijfer_nederlands
+16 * VOP_Cijfer_wiskunde_alpha
+17 * VOP_Cijfer_wiskunde_beta
+18 * RES_Gem_resultaat_geboekt_tm_P7
+
+
+The variables that will be used for the second, ethical alternative models include:
+1 * DEM_Geslacht
+2 * DEM_Leeftijd_peildatum_1_oktober
+3 * RES_Gem_resultaat_geboekt_tm_P1
+4 * MVR_Studiesituatie_Uur_per_week_studie
+5 * MVR_Studiesituatie_Uur_per_week_nevenactiviteiten_cat
+6 * MVR_Studiesituatie_Uur_per_week_werk
+7 * VOP_Cijfer_economie
+8 * VOP_Cijfer_engels
+9 * VOP_Cijfer_gemiddeld
+10 * VOP_Cijfer_natuurkunde
+11 * VOP_Cijfer_nederlands
+12 * VOP_Cijfer_wiskunde_alpha
+13 * VOP_Cijfer_wiskunde_beta
+14 * MVR_AV_Analytisch_studeergedrag_cat
+15 * MVR_AV_Concentratievermogen_cat
+16 * MVR_AV_Proactief_studeergedrag_cat
+17 * MVR_AV_Studiedoelen_stellen_cat
+18 * MVR_AV_Studieplanning_cat
+19 *  MVR_AV_Zelfdiscipline_cat
+20 * RES_Gem_resultaat_geboekt_tm_P7
+
+Variables included to understand te dataset better, but are not necessarily part of the predictive models are:
+1 * SDS_type
+2 * INS_studentnummer
+3 * SDS_opleiding
+
+```{r include=FALSE}
+
+#Select the variables that are to be used in analysis 
+s_simdata <- simdata %>% select(INS_Studentnummer, DEM_Geslacht, DEM_Leeftijd_peildatum_1_oktober, RES_Gem_resultaat_geboekt_tm_P1, MVR_Studiesituatie_Omgeving_hulp, MVR_Studiesituatie_Ouders_universiteit, MVR_Studiesituatie_Financien_belemmering, MVR_Studiesituatie_Uur_per_week_studie, MVR_Studiesituatie_Reistijd_minuten, MVR_Studiesituatie_Uur_per_week_nevenactiviteiten_cat, MVR_Studiesituatie_Uur_per_week_werk, VOP_Cijfer_economie, VOP_Cijfer_engels, VOP_Cijfer_natuurkunde, VOP_Cijfer_nederlands, VOP_Cijfer_wiskunde_alpha, VOP_Cijfer_wiskunde_beta, RES_Gem_resultaat_geboekt_tm_P7, SDS_type, SDS_opleiding, MVR_AV_Analytisch_studeergedrag_cat,	MVR_AV_Concentratievermogen_cat, MVR_AV_Proactief_studeergedrag_cat, MVR_AV_Studiedoelen_stellen_cat, MVR_AV_Studieplanning_cat, MVR_AV_Zelfdiscipline_cat)
+colnames(s_simdata)
+summary(s_simdata)
+head(s_simdata)
+```
+
+##Change variable names 
+
+```{r include=FALSE}
+#Column names before
+colnames(s_simdata)
+
+#Change column names for model 1
+names(s_simdata)[names(s_simdata)=="DEM_Geslacht"] <- "gender"
+names(s_simdata)[names(s_simdata)=="DEM_Leeftijd_peildatum_1_oktober"] <- "age"
+names(s_simdata)[names(s_simdata)=="RES_Gem_resultaat_geboekt_tm_P1"] <- "avg_grade_p1"
+names(s_simdata)[names(s_simdata)=="RES_Gem_resultaat_geboekt_tm_P7"] <- "avg_grade_p7"
+names(s_simdata)[names(s_simdata)=="MVR_Studiesituatie_Omgeving_hulp"] <- "support_environment"
+names(s_simdata)[names(s_simdata)=="MVR_Studiesituatie_Ouders_universiteit"] <- "parents_uni"
+names(s_simdata)[names(s_simdata)=="MVR_Studiesituatie_Reistijd_minuten"] <- "travel_time_minutes"
+names(s_simdata)[names(s_simdata)=="MVR_Studiesituatie_Uur_per_week_studie"] <- "study_hours_week"
+names(s_simdata)[names(s_simdata)=="MVR_Studiesituatie_Uur_per_week_werk"] <- "sidejob_hours_week"
+names(s_simdata)[names(s_simdata)=="VOP_Cijfer_economie"] <- "SS_grade_Economics"
+#names(s_simdata)[names(s_simdata)=="VOP_Cijfer_gemiddeld"] <- "SS_average"
+names(s_simdata)[names(s_simdata)=="VOP_Cijfer_natuurkunde"] <- "SS_grade_Physics"
+names(s_simdata)[names(s_simdata)=="VOP_Cijfer_wiskunde_beta"] <- "SS_grade_Maths_A"
+names(s_simdata)[names(s_simdata)=="VOP_Cijfer_wiskunde_alpha"] <- "SS_grade_Maths_B"
+names(s_simdata)[names(s_simdata)=="VOP_Cijfer_engels"] <- "SS_grade_English"
+names(s_simdata)[names(s_simdata)=="VOP_Cijfer_nederlands"] <- "SS_grade_Dutch"
+names(s_simdata)[names(s_simdata)=="MVR_Studiesituatie_Uur_per_week_nevenactiviteiten_cat"] <- "Extracurr_hours_week"
+names(s_simdata)[names(s_simdata)=="MVR_Studiesituatie_Financien_belemmering"] <- "financial_barriers"
+names(s_simdata)[names(s_simdata)=="SDS_type"] <- "type_education"
+names(s_simdata)[names(s_simdata)=="INS_Studentnummer"] <- "studentnumber"
+names(s_simdata)[names(s_simdata)=="SDS_opleiding"] <- "Education_name"
+names(s_simdata)[names(s_simdata)=="VOP_Cijfer_nederlands"] <- "SS_grade_Dutch"
+names(s_simdata)[names(s_simdata)=="MVR_AV_Analytisch_studeergedrag_cat"] <- "analytical_study_behaviour"
+names(s_simdata)[names(s_simdata)=="MVR_AV_Concentratievermogen_cat"] <- "concentration_ability"
+names(s_simdata)[names(s_simdata)=="MVR_AV_Proactief_studeergedrag_cat"] <- "proactive_study_behaviour"
+names(s_simdata)[names(s_simdata)=="MVR_AV_Studiedoelen_stellen_cat"] <- "study_goals_setting"
+names(s_simdata)[names(s_simdata)=="MVR_AV_Studieplanning_cat"] <- "study_planning"
+names(s_simdata)[names(s_simdata)=="MVR_AV_Zelfdiscipline_cat"] <- "self_discipline"
+
+#Column names after
+colnames(s_simdata)
+
+```
+
+#Data cleaning 
+First look at the data for inconsistencies and erros. 
+
+From looking at the data it becomes clear that:
+
+*1.* Not all variables are in the correct variable type. You can not see the categories within variables and their distribution, for example the variable *geslacht* does not show the categories man/vrouw and the number of missing variables because it is labeled as a character type instead of a factor. Hence, we change the variables to more suitable variable types.
+
+*2* There are no missing variables detected, because the dutch word "Missend" is recognized as a category type and not as a missing variable. Hence this will be corrected. After this the missing variables will be investigated in order to decide if missing observations or entire variables should be deleted. 
+
+*3* It becomes clear that the variables that represent grades are not in the right number format, because separators are not properly recognized. This also should be corrected to numbers with three digits and a dot after the first digit. 
+
+```{r}
+summary(s_simdata)
+str(s_simdata)
+```
+
+
+#Manipulate data
+
+In this section variables will be converted to the correct datatypes, data formatting will be considered and outliers are removed. 
+
+The order of the factors financien belemmering, omgeving hulp en uur_week_nevenactiviteiten had to be changed to an ascending order as this is the way they were intended to be used.
+
+```{r}
+#Change wrongly assigned datatypes to the correct type
+s_simdata$gender <- factor(s_simdata$gender, order = TRUE, levels = c("Man", "Vrouw"))
+s_simdata$gender <- revalue(s_simdata$gender, c("Man"= "Male", "Vrouw"= "Female"))
+s_simdata$type_education <- as.factor(s_simdata$type_education)
+s_simdata$age <- as.integer(s_simdata$age)
+s_simdata$study_hours_week <- as.integer(s_simdata$study_hours_week)
+s_simdata$travel_time_minutes <- as.integer(s_simdata$travel_time_minutes)
+s_simdata$sidejob_hours_week <- as.integer(s_simdata$sidejob_hours_week)
+#s_simdata$analytical_study_behaviour <- as.factor(s_simdata$analytical_study_behaviour)
+#s_simdata$concentration_ability <- as.factor(s_simdata$concentration_ability)
+#s_simdata$study_goals_setting <- as.factor(s_simdata$study_goals_setting)
+#s_simdata$study_planning <- as.factor(s_simdata$study_planning)
+#s_simdata$self_discipline <- as.factor(s_simdata$self_discipline)
+
+#reorder the levels of the factors: parents_uni, financien belemmering, omgeving hulp en uur_week_nevenactiviteiten to an ascending order
+
+#PARENTS UNI
+##Change categories to orederd factor
+s_simdata$parents_uni <- factor(s_simdata$parents_uni, order = TRUE, levels = c("Nee", "Ja"))
+s_simdata$parents_uni <- revalue(s_simdata$parents_uni, c("Nee"= "No", "Ja"= "Yes"))
+class(s_simdata$parents_uni)
+levels(s_simdata$parents_uni)
+
+#FINANCIAL BARRIERS
+##Change categories to ordinal factor
+s_simdata$financial_barriers <- factor(s_simdata$financial_barriers, order = TRUE, levels = c("Niet van toepassing", "Beetje van toepassing", "Redelijk van toepassing", "Vrij sterk van toepassing", "Helemaal van toepassing"))
+##Change level names to english
+s_simdata$financial_barriers <- revalue(s_simdata$financial_barriers,  c("Niet van toepassing" ="Not applicable", "Beetje van toepassing"="Somewhat Applicable","Redelijk van toepassing"  ="Reasonably Applicable", "Vrij sterk van toepassing"="Quite strongly applicable","Helemaal van toepassing"="Totally applicable"))
+levels(s_simdata$financial_barriers)
+class(s_simdata$financial_barriers)
+##Change ordinal factor to numeric
+s_simdata$financial_barriers <- as.integer(s_simdata$financial_barriers)
+
+#SUPPORT_ENVIRONMENT
+##Change categorical to ordinal factor
+s_simdata$support_environment <- factor(s_simdata$support_environment, ordered = TRUE, levels = c("Niet van toepassing", "Beetje van toepassing", "Redelijk van toepassing", "Vrij sterk van toepassing", "Helemaal van toepassing"))
+
+##Translate factor categories to english
+s_simdata$support_environment <- revalue(s_simdata$support_environment, c("Niet van toepassing" ="Not applicable", "Beetje van toepassing"="Somewhat Applicable","Redelijk van toepassing"  ="Reasonably Applicable", "Vrij sterk van toepassing"="Quite strongly applicable","Helemaal van toepassing"="Totally applicable"))
+
+##Change ordinal factor to nueric
+s_simdata$support_environment <- as.integer(s_simdata$support_environment)
+
+#Stays the same 
+s_simdata$Extracurr_hours_week <- factor(s_simdata$Extracurr_hours_week, levels = c("0", "1 - 8", "9 -16", "17 -24", "25 - 32", "Other"))
+levels(s_simdata$Extracurr_hours_week)
+
+#Look at summary
+summary(s_simdata)
+
+#Cut strings that represent grades with too many zero's up to three digits 
+s_simdata$avg_grade_p1 <- substr(s_simdata$avg_grade_p1, start = 1, stop = 3)
+s_simdata$avg_grade_p7 <- substr(s_simdata$avg_grade_p7, start = 1, stop = 3)
+s_simdata$SS_grade_Economics <- substr(s_simdata$SS_grade_Economics, start = 1, stop = 3)
+s_simdata$SS_grade_English <- substr(s_simdata$SS_grade_English, start = 1, stop = 3)
+s_simdata$SS_grade_Physics <- substr(s_simdata$SS_grade_Physics, start = 1, stop = 3)
+s_simdata$SS_grade_Dutch <- substr(s_simdata$SS_grade_Dutch, start = 1, stop = 3)
+s_simdata$SS_grade_Maths_B <- substr(s_simdata$SS_grade_Maths_B, start = 1, stop = 3)
+s_simdata$SS_grade_Maths_A <- substr(s_simdata$SS_grade_Maths_A, start = 1, stop = 3)
+#head(s_simdata)
+
+#Change grades from type character back to doubles
+s_simdata$avg_grade_p1 <- as.double(s_simdata$avg_grade_p1)
+s_simdata$avg_grade_p7 <- as.double(s_simdata$avg_grade_p7)
+s_simdata$SS_grade_Economics <- as.double(s_simdata$SS_grade_Economics)
+s_simdata$SS_grade_English <- as.double(s_simdata$SS_grade_English)
+s_simdata$SS_grade_Physics <- as.double(s_simdata$SS_grade_Physics)
+s_simdata$SS_grade_Dutch <- as.double(s_simdata$SS_grade_Dutch)
+s_simdata$SS_grade_Maths_B <- as.double(s_simdata$SS_grade_Maths_B)
+s_simdata$SS_grade_Maths_A <- as.double(s_simdata$SS_grade_Maths_A)
+
+#Place a comma after the first digit
+s_simdata$avg_grade_p1 <- gsub("^(\\d{1})(\\d+)","\\1,\\2",s_simdata$avg_grade_p1)
+s_simdata$avg_grade_p7 <- gsub("^(\\d{1})(\\d+)","\\1,\\2",s_simdata$avg_grade_p7)
+s_simdata$SS_grade_Economics <- gsub("^(\\d{1})(\\d+)","\\1,\\2",s_simdata$SS_grade_Economics)
+s_simdata$SS_grade_English <- gsub("^(\\d{1})(\\d+)","\\1,\\2",s_simdata$SS_grade_English)
+s_simdata$SS_grade_Physics <- gsub("^(\\d{1})(\\d+)","\\1,\\2",s_simdata$SS_grade_Physics)
+s_simdata$SS_grade_Dutch <- gsub("^(\\d{1})(\\d+)","\\1,\\2",s_simdata$SS_grade_Dutch)
+s_simdata$SS_grade_Maths_B <- gsub("^(\\d{1})(\\d+)","\\1,\\2",s_simdata$SS_grade_Maths_B)
+s_simdata$SS_grade_Maths_A <- gsub("^(\\d{1})(\\d+)","\\1,\\2",s_simdata$SS_grade_Maths_A)
+#head(s_simdata)
+
+#Change grade variables from character to integers and change the comma's into dots
+s_simdata$avg_grade_p1 <- as.double(gsub(",", ".", s_simdata$avg_grade_p1))
+s_simdata$avg_grade_p7 <- as.double(gsub(",", ".", s_simdata$avg_grade_p7))
+s_simdata$SS_grade_Economics <- as.double(gsub(",", ".", s_simdata$SS_grade_Economics))
+s_simdata$SS_grade_English <- as.double(gsub(",", ".", s_simdata$SS_grade_English))
+s_simdata$SS_grade_Physics <- as.double(gsub(",", ".", s_simdata$SS_grade_Physics))
+s_simdata$SS_grade_Dutch <- as.double(gsub(",", ".", s_simdata$SS_grade_Dutch))
+s_simdata$SS_grade_Maths_B <- as.double(gsub(",", ".", s_simdata$SS_grade_Maths_B))
+s_simdata$SS_grade_Maths_A <- as.double(gsub(",", ".", s_simdata$SS_grade_Maths_A))
+#head(s_simdata)
+
+# R doesn't recognize the words "Missend" as a seperate category instead of as a missing variable. This has to be changed.
+s_simdata[s_simdata == "Missend"] <- NA
+summary(s_simdata)
+
+```
+
+
+```{r}
+
+#Prepare dependent variable for classification 
+##PASS & FAIL
+s_simdata$avg_gr_p7_PF <- cut(s_simdata$avg_grade_p7, breaks = c(1, 5.5, 10),
+labels = c("fail [0.0 - 5.4]", "pass [5.5 - 10]"), order = TRUE, right = FALSE, include.lowest = TRUE)
+
+passfail_p7 <- s_simdata %>% group_by(avg_gr_p7_PF) %>% dplyr::summarise(count = n()) %>% arrange(avg_gr_p7_PF)
+
+bar <- ggplot(passfail_p7, aes(avg_gr_p7_PF, count))
+bar + geom_bar(stat="identity", fill = "white", colour="black")
+bar + geom_bar(stat="identity", fill = "white", colour="black") + labs(x = "grades", y = "frequency") +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+#Look at the distributions of the new variables to see if they make sense
+summary(s_simdata)
+str(s_simdata)
+```
+
+
+##Remove outliers
+
+```{r}
+
+#investigate outliers study_hours_week
+boxplot(s_simdata$study_hours_week)
+
+##study hours week > 3rd quartile (40)
+dist_SH_week <- s_simdata %>% group_by(study_hours_week) %>% dplyr::summarise(count = n()) %>% filter(study_hours_week > 39) %>% arrange(study_hours_week)
+dist_SH_week
+
+bar <- ggplot(dist_SH_week, aes(study_hours_week, count))
+bar + geom_bar(stat="identity", fill = "#CC6667", colour="#CC6667")
+bar + geom_bar(stat="identity", fill = "#CC6667", colour="#CC6667") + labs(x = "gem_res_tm_p7", y = "frequency") +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+########################################################
+##investigate outliers travel time minutes
+boxplot(s_simdata$travel_time_minutes)
+
+#Look at frequencies of travel time > 3rd quartile 60
+dist_TT_min60 <- s_simdata %>% group_by(travel_time_minutes) %>% dplyr::summarise(count = n()) %>% filter(travel_time_minutes > 59) %>% arrange(travel_time_minutes)
+dist_TT_min60
+
+#plot travel times > 3rd quartile (60)
+bar <- ggplot(dist_TT_min60, aes(travel_time_minutes, count))
+bar + geom_bar(stat="identity", fill = "grey2", colour="grey2")
+bar + geom_bar(stat="identity", fill = "grey2", colour="grey2") + labs(x = "gem_res_tm_p7", y = "frequency") +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+#########################################################
+boxplot(s_simdata$sidejob_hours_week)
+
+#Look at frequencies of travel time > 3rd quartile 14
+dist_SH_w14 <- s_simdata %>% group_by(sidejob_hours_week) %>% dplyr::summarise(count = n()) %>% filter(sidejob_hours_week > 13) %>% arrange(sidejob_hours_week)
+dist_SH_w14 
+
+#plot travel times > 3rd quartile (14)
+bar <- ggplot(dist_SH_w14, aes(sidejob_hours_week, count))
+bar + geom_bar(stat="identity", fill = "grey2", colour="grey2")
+bar + geom_bar(stat="identity", fill = "grey2", colour="grey2") + labs(x = "gem_res_tm_p7", y = "frequency") +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+bar <- ggplot(dist_SH_w14, aes(sidejob_hours_week, count))
+bar + geom_bar(stat="identity", fill = "grey2", colour="grey2")
+bar + geom_bar(stat="identity", fill = "grey2", colour="grey2") + labs(x = "gem_res_tm_p7", y = "frequency") +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+#Remove outliers: studie_uren_per_week (24x7) 168 hours and reistijd in minuten a maximum of 6 hours per day--> check it
+s_simdata <- subset(s_simdata, study_hours_week <= 140) #was 900, gaat naar 24x7-4x7=140 - geeft alsnog max = 130 --> 130 uur pw
+s_simdata <- subset(s_simdata, travel_time_minutes <= 480) #was 999,max 8 uur per dag
+s_simdata <- subset(s_simdata, sidejob_hours_week <= 80) #2x fulltime
+s_simdata <- subset(s_simdata, proactive_study_behaviour <= 10)
+s_simdata <- subset(s_simdata, study_goals_setting <= 10)
+
+
+#Now the data is transformed to the right data types and forms.
+summary(s_simdata)
+```
+
+
+##Look at outliers after subsetting
+```{r}
+#plot full distribution of sidejob hours
+dist_SH_w14 <- s_simdata %>% group_by(sidejob_hours_week) %>% dplyr::summarise(count = n()) %>% arrange(sidejob_hours_week)
+dist_SH_w14 
+
+bar <- ggplot(dist_SH_w14, aes(sidejob_hours_week, count))
+bar + geom_bar(stat="identity", fill = "grey2", colour="grey2")
+bar + geom_bar(stat="identity", fill = "grey2", colour="grey2") + labs(x = "sidejob hours per week", y = "frequency") +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+#Plot full distribution of sidejob hours
+#Get distribution of travel time
+dist_TT_min <- s_simdata %>% group_by(travel_time_minutes) %>% dplyr::summarise(count = n()) %>% arrange(travel_time_minutes)
+dist_TT_min
+
+#plot full distribution travel time
+bar <- ggplot(dist_TT_min, aes(travel_time_minutes, count))
+bar + geom_bar(stat="identity", fill = "grey2", colour="grey2")
+bar + geom_bar(stat="identity", fill = "grey2", colour="grey2") + labs(x = "travel time in minutes", y = "frequency") +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+#plot full distribution of study hours
+dist_SH_week <- s_simdata %>% group_by(study_hours_week) %>% dplyr::summarise(count = n()) %>% arrange(study_hours_week)
+dist_SH_week
+
+bar <- ggplot(dist_SH_week, aes(study_hours_week, count))
+bar + geom_bar(stat="identity", fill = "grey2", colour="grey2")
+bar + geom_bar(stat="identity", fill = "grey2", colour="grey2") + labs(x = "study hours per week", y = "frequency") +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+summary(s_simdata)
+
+```
+
+
+##Investigate missing values
+
+First the missing values will be investigated. From four variables: "omgeving_hulp", "ouders_uni", "financien_belemmering" en "uur_week_nevenactiviteiten" seem to miss 172892 missing values on average from the total 226446. As there are plenty cases left after removing these missing values, none of these variables will be deleted and instead only complete cases will be selected. After this, a subset is taken from the data which only leaves the bachelor students in the dataset. The reason for this is because the number of master students are negligable *(318 students)*, which makes generalization to the target population not possible. This finally leaves a dataset of *51668* observations in total. 
+
+```{r}
+
+#Check per variable where there are missing values
+na_output <- matrix(ncol=1, nrow=27)
+
+for (i in (1:27)){
+  na_output[i,] <- sum(is.na(s_simdata[,i]))
+ }
+na_output
+colnames(s_simdata)
+
+#Remove variables that have too many missing variables --> Not necessary
+
+#Select complete cases with acceptable number of missing variables
+s_simdata <- s_simdata[complete.cases(s_simdata$gender), ] 
+s_simdata <- s_simdata[complete.cases(s_simdata$support_environment), ] 
+s_simdata <- s_simdata[complete.cases(s_simdata$parents_uni), ] 
+s_simdata <- s_simdata[complete.cases(s_simdata$financial_barriers), ] 
+s_simdata <- s_simdata[complete.cases(s_simdata$Extracurr_hours_week), ] 
+
+#ec's
+#s_simdata <- s_simdata[complete.cases(s_simdata$RES_Aantal_EC_tm_jaar_3), ] 
+
+#Subset on only bachelorstudents, because of low number of master students.
+s_simdata_bachelor <- subset(s_simdata, s_simdata$type_education == "Bachelor")
+
+#drop the level master in the factor levels of type_opleiding to be consequent
+s_simdata_final <- droplevels(s_simdata_bachelor, exclude = "Master")
+
+#Now the category "Missend" can also be removed, as it has no function anymore.
+s_simdata <- droplevels(s_simdata, exclude = "Missend")
+
+summary(s_simdata)
+
+#save final dataset (51663 variables)
+save(s_simdata_final, file = "s_simdata_final.RData")
+
+```
+
+#Data interrogation (description of the dataset)
+Here we are going to look at what the data looks like after manipulating it.
+
+```{r}
+
+#First we compare the dataset before and after complete cases & subsetting on master students took place
+#Look at data. There are now 51668 observations left.
+summary(s_simdata_final)
+
+s_simdata_final <- select(s_simdata_final, -SS_grade_Maths_B)
+
+#create summary statistics of numeric variables
+s_simdata_final <- as.data.frame(s_simdata_final)
+stargazer(s_simdata_final, type = "text")
+stargazer(s_simdata_final)
+
+#how many unique students are there in the dataset (21798)
+s_simdata_final %>% distinct(studentnumber) %>% dplyr::summarise(unique_studentnumbers = n())
+
+#how many unique genders
+x <- s_simdata_final %>% distinct(studentnumber, gender) %>% group_by(studentnumber) 
+x <- x %>% group_by(gender) %>% dplyr::summarise(count = n()) %>% mutate(freq = count / sum(count), freq = round(freq,2)) %>% arrange(desc(count))
+
+#Investigate which studies are included and removed when subsetting on bachelors
+##subset the dataset on masters (bachelors is subsetted on before)
+s_simdata_master <- subset(s_simdata, s_simdata$type_education == "Master")
+
+#Look at which masters and bachelors are included per study
+M_opl <- unique(s_simdata_master$Education_name)
+B_opl <- unique(s_simdata_bachelor$Education_name)
+
+#alle unieke opleidingen in de dataset
+unique(s_simdata_final$Education_name)
+
+#Look at the differences between bachelors and masters
+intersect(M_opl, B_opl) #27 are the same & 2 different at both
+setdiff(M_opl, B_opl) #entrepreneurship, Marketing are bachelor and not master studies
+setdiff(B_opl, M_opl) #econometrie, Internationale cultuur & taalstudies are master and not Bachelor studies
+
+
+#how many parents went to uni 
+a <- s_simdata_final %>% distinct(studentnumber, parents_uni) %>% group_by(studentnumber) 
+a <- a %>% group_by(parents_uni) %>% dplyr::summarise(count = n()) %>% mutate(freq = count / sum(count), freq = round(freq,2)) %>% arrange(desc(count))
+a
+
+
+#investigate financial barriers
+f <- s_simdata_final %>% distinct(studentnumber, financial_barriers) %>% group_by(studentnumber) 
+f <- f %>% group_by(financial_barriers) %>% dplyr::summarise(count = n()) %>% mutate(freq = count / sum(count), freq = round(freq,2)) %>% arrange(desc(count))
+f
+
+
+#investigate support_environment
+s <- s_simdata_final %>% distinct(studentnumber, support_environment) %>% group_by(studentnumber) 
+s <- s %>% group_by(support_environment) %>% dplyr::summarise(count = n()) %>% mutate(freq = count / sum(count), freq = round(freq,2)) %>% arrange(desc(count))
+s
+
+
+#investigate extracurricular hours
+e <- s_simdata_final %>% distinct(studentnumber, Extracurr_hours_week) %>% group_by(studentnumber) 
+e <- e %>% group_by(Extracurr_hours_week) %>% dplyr::summarise(count = n()) %>% mutate(freq = count / sum(count), freq = round(freq,2)) %>% arrange(desc(count))
+e
+
+
+```
+
+#plots of categorical variables
+```{r echo=FALSE}
+
+
+#Font for plots
+windowsFonts(A = windowsFont("Times new Roman"))
+
+bar1 <- ggplot(x, aes(gender, count))
+bar1 + geom_bar(stat="identity", fill = "black", colour="white", size = 10)
+bar1 + geom_bar(stat="identity", fill = "black", colour="white", size = 10) + labs(x = "Gender", y = "count") +  theme(axis.text=element_text(size=11), axis.title=element_text(size=13, face = "bold"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black")) + scale_y_continuous(labels = comma) + theme(text=element_text(family="A"))
+
+bar2 <- ggplot(a, aes(parents_uni, count))
+bar2 + geom_bar(stat="identity", fill = "black", colour="white", size = 10)
+bar2 + geom_bar(stat="identity", fill = "black", colour="white", size = 10) + labs(x = "parents_uni", y = "count") +  theme(axis.text=element_text(size=11), axis.title=element_text(size=11, face = "bold"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black")) + scale_y_continuous(labels = comma) + theme(text=element_text(family="A"))
+
+bar3 <- ggplot(f, aes(financial_barriers, count))
+bar3 + geom_bar(stat="identity", fill = "black", colour="white", size = 20)
+bar3 + geom_bar(stat="identity", fill = "black", colour="white", size = 20) + labs(x = "Financial barriers", y = "count") +  theme(axis.text=element_text(size=21), axis.title=element_text(size=21, face = "bold"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black")) + scale_y_continuous(labels = comma) + theme(text=element_text(family="A"))
+
+bar4 <- ggplot(s, aes(support_environment, count))
+bar4 + geom_bar(stat="identity", fill = "black", colour="white", size = 20)
+bar4 + geom_bar(stat="identity", fill = "black", colour="white", size = 20) + labs(x = "Support from environment", y = "count") +  theme(axis.text=element_text(size=21), axis.title=element_text(size=21, face = "bold"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black")) + scale_y_continuous(labels = comma) + theme(text=element_text(family="A"))
+
+bar5 <- ggplot(e, aes(Extracurr_hours_week, count))
+bar5 + geom_bar(stat="identity", fill = "black", colour="white", size = 20)
+bar5 + geom_bar(stat="identity", fill = "black", colour="white", size = 20) + labs(x = "Extracurricular hours per week", y = "count") +  theme(axis.text=element_text(size=21), axis.title=element_text(size=21, face = "bold"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black")) + scale_y_continuous(labels = comma) + theme(text=element_text(family="A"))
+
+
+```
+
+
+#Limitations of the dataset
+
+*DATASET IMPROVEMENT POINTS*
+- You cannot filter on specific studies, as only more general studies are covered. This makes generalisability. Is there an option to do this? Not done because of time restrictions to give more in depth analyses. (Vraag Dominique: waarom geen specifieke opleidingen gesimuleerd?) 
+- format of data is not translated well in R (, instead of .)
+- Variabele uur_week_nevenactiviteiten --> gaat tot 32 en houdt geen rekening met fulltime of meer. 
+- Reistijd in minuten --> no realistic max (999)
+- uren_bijbaan_week --> no realistic max (420 = 2,5 weeks)
+- studie_uren_week --> no realistic max (900)
+- ALL students have grades for wiskunde A & B, but this does not happen in practice?
+- Not enough grades collected to predict future grades --> ects however is enough information on.
+- Studentnummers komen meerdere keren voor met verschillende gegevens?
+- duplicate genders per student number
+
+
+

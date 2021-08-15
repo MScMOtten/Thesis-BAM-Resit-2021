@@ -1,0 +1,880 @@
+---
+title: "BAM Thesis 2021 - Model 2 - Random Forest"
+author: "Michelle Otten"
+date: "4-5-2021"
+output: html_document
+---
+
+
+#empty environment
+
+```{r}
+rm(list=ls())
+```
+
+#Load packages
+```{r}
+install.packages("tibble")
+install.packages("tidyr")
+install.packages("tidymodels")
+library(tidymodels)
+library("ranger") #for random forest
+library("knitr")
+library("doParallel")
+library("vip")
+
+```
+
+
+#Load data
+
+```{r}
+load("s_simdata_final1.Rdata")
+```
+
+#Model Assessment setup
+
+# feature selection
+
+```{r}
+#Look at the final datased used for the linear regression model (2)
+summary(s_simdata_final1)
+
+#Select features needed for the random forest models
+simdata_features <- s_simdata_final1 %>% select(avg_gr_p7_PF, avg_grade_p7, avg_grade_p1, SS_grade_Dutch, SS_grade_English, SS_grade_Dutch, SS_grade_Maths_A, SS_grade_Economics, SS_grade_Physics, gender, age, support_environment, parents_uni,  financial_barriers, study_hours_week, travel_time_minutes, Extracurr_hours_week, sidejob_hours_week, analytical_study_behaviour, concentration_ability, proactive_study_behaviour, study_goals_setting, study_planning, self_discipline)
+simdata_features
+
+
+```
+
+#Check how the data is balanced
+The goal is to predict whether a loan will default or not. The classes are imbalanced:
+
+```{r}
+#Established
+simdata_features %>% count(avg_gr_p7_PF) %>% 
+mutate(prop = n / sum(n))
+
+```
+
+
+#create density plots per classes --> differences in income between defaulters and non defaulters + default people have higher credit card balance
+
+```{r}
+ggplot(simdata_features, aes(x = age , fill = avg_gr_p7_PF )) + geom_density(alpha = 0.5) +  theme(axis.text=element_text(size=21), axis.title=element_text(size=21, face = "bold"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black")) + scale_y_continuous(labels = comma) + theme(text=element_text(family="A"))
+
+ggplot(simdata_features, aes(x = gender , fill = avg_gr_p7_PF )) + 
+  geom_density(alpha = 0.5)
+```
+
+##Create a validation split of 70% training and 30% testing
+```{r}
+set.seed(123589)
+s_split <- initial_split(simdata_features, prop = 0.7,  strata = avg_gr_p7_PF)
+s_split
+
+
+set.seed(123589)
+R_split <- initial_split(simdata_features, prop = 0.7)
+R_split
+
+```
+
+##Create train and test set
+```{r}
+
+s_train <- training(s_split)
+s_test  <- testing(s_split)
+
+```
+
+##create a five fold cross validation split
+The same for ethical and established
+
+```{r}
+#established
+set.seed(584524)
+cv_folds <- s_train %>% vfold_cv(v = 5, strata = avg_gr_p7_PF)
+
+```
+
+
+
+#Model 1: Random Forest
+
+```{r}
+
+#USE CASE 0: Baseline - established
+rf_recipe <- recipe(avg_gr_p7_PF ~ avg_grade_p1 + gender + age + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + travel_time_minutes + study_hours_week + sidejob_hours_week + parents_uni + financial_barriers + support_environment +  Extracurr_hours_week, data = s_train) %>% step_downsample(avg_gr_p7_PF)  #for class imbalance
+  rf_recipe
+  
+#USE CASE 1: ethical - admission
+rf_recipe_ET1 <- recipe(avg_gr_p7_PF ~ avg_grade_p1 + age + gender + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + study_hours_week + analytical_study_behaviour + concentration_ability + proactive_study_behaviour + study_goals_setting + study_planning + self_discipline + Extracurr_hours_week, data = s_train) %>% step_downsample(avg_gr_p7_PF)
+rf_recipe_ET1
+
+#USE CASE 2: ethical - underperforming students
+rf_recipe_ET2 <- recipe(avg_gr_p7_PF ~ avg_grade_p1 + gender + age + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + study_hours_week + sidejob_hours_week + analytical_study_behaviour + concentration_ability + proactive_study_behaviour + study_goals_setting + study_planning + self_discipline + parents_uni + financial_barriers + support_environment +  Extracurr_hours_week, data = s_train) %>% step_downsample(avg_gr_p7_PF)
+rf_recipe_ET2
+
+```
+
+##Specify the model 
+- set mode
+- variable that has to be tuned, mtry??
+
+```{r}
+rf_model_tune <- rand_forest(mtry = tune(), trees = 1000) %>%
+  set_mode("classification") %>%
+  set_engine("ranger")
+```
+##combine variables in one workflow
+```{r}
+#use case 0: baseline established
+rf_tune_wf <- workflow() %>%
+  add_recipe(rf_recipe) %>%
+  add_model(rf_model_tune)
+rf_tune_wf
+
+#use case 1: ethical admission
+rf_tune_wf_ET1 <- workflow() %>%
+  add_recipe(rf_recipe_ET1) %>%
+  add_model(rf_model_tune)
+rf_tune_wf_ET1
+
+#use case 2: ethical underperforming
+rf_tune_wf_ET2 <- workflow() %>%
+  add_recipe(rf_recipe_ET2) %>%
+  add_model(rf_model_tune)
+rf_tune_wf_ET2
+
+```
+
+##Run the model
+
+```{r}
+#Classification
+class_metrics <- metric_set(accuracy, sensitivity, specificity) #sensitivity toevoegen?
+
+```
+##Tune mtry
+Consider range of 15 features
+
+```{r}
+#established
+#registerDoParallel()
+set.seed(12577)
+rf_tune_res <- tune_grid(
+  rf_tune_wf,
+  resamples = cv_folds,
+  grid = tibble(mtry = 1:3*5), # CHANGE THIS ONE TO NUMBER OF FEATURES
+  metrics = class_metrics)
+
+
+save(rf_tune_res, file="rand_forest_tuned.RData")
+
+#ethical - use case 1: admission
+#registerDoParallel()
+set.seed(12577)
+rf_tune_res_ET1 <- tune_grid(
+  rf_tune_wf_ET1,
+  resamples = cv_folds,
+  grid = tibble(mtry = 1:3*5), # CHANGE THIS ONE TO NUMBER OF FEATURES
+  metrics = class_metrics)
+
+#ethical - use case 2: underperforming
+#registerDoParallel()
+set.seed(12577)
+rf_tune_res_ET2 <- tune_grid(
+  rf_tune_wf_ET2,
+  resamples = cv_folds,
+  grid = tibble(mtry = 1:3*5), # CHANGE THIS ONE TO NUMBER OF FEATURES
+  metrics = class_metrics)
+
+
+```
+
+```{r}
+#plot the previous Established
+autoplot(rf_tune_res) +
+  theme_bw() 
+
+##plot the previous use case 1
+autoplot(rf_tune_res_ET1) +
+  theme_bw() 
+
+##plot the previous use case 2
+autoplot(rf_tune_res_ET2) +
+  theme_bw() 
+```
+
+## Collect the metrics
+
+```{r}
+#Established
+rf_tune_res %>%
+  collect_metrics()
+
+#ethical use case 1
+rf_tune_res_ET1 %>%
+  collect_metrics()
+
+#ethical use case 2
+rf_tune_res_ET2 %>%
+  collect_metrics()
+
+```
+
+## Select the best tuning parameter - plot metrics
+  
+```{r}
+#established
+rf_tune_res %>%
+  collect_metrics() %>%
+  ggplot(aes(x = mtry, y = mean, ymin = mean - std_err, ymax = mean + std_err, 
+             colour = .metric)) +
+  geom_errorbar() + 
+  geom_line() +
+  geom_point() +
+  facet_grid(.metric ~ ., scales = "free_y")  + 
+  theme_bw() 
+
+#ethical use case 1
+rf_tune_res_ET1 %>%
+  collect_metrics() %>%
+  ggplot(aes(x = mtry, y = mean, ymin = mean - std_err, ymax = mean + std_err, 
+             colour = .metric)) +
+  geom_errorbar() + 
+  geom_line() +
+  geom_point() +
+  facet_grid(.metric ~ ., scales = "free_y")  +
+  theme_bw() 
+
+#ethical use case 2
+rf_tune_res_ET2 %>%
+  collect_metrics() %>%
+  ggplot(aes(x = mtry, y = mean, ymin = mean - std_err, ymax = mean + std_err, 
+             colour = .metric)) +
+  geom_errorbar() + 
+  geom_line() +
+  geom_point() +
+  facet_grid(.metric ~ ., scales = "free_y")  +
+  theme_bw()
+
+
+```
+ 
+ 
+ 
+ Mtry does not affect the accuracy very much, as the mean accuracy stays around 0.590
+## Select the best model based on preferred metric 
+
+```{r}
+#established
+best_acc <- select_best(rf_tune_res, "accuracy")
+rf_final_wf0 <- finalize_workflow(rf_tune_wf, best_acc)
+rf_final_wf0
+
+#ethical use case 1
+best_acc1 <- select_best(rf_tune_res_ET1, "accuracy")
+rf_final_wf_ET1 <- finalize_workflow(rf_tune_wf_ET1, best_acc1)
+rf_final_wf_ET1
+
+#ethical use case 2
+best_acc2 <- select_best(rf_tune_res_ET2, "accuracy")
+rf_final_wf_ET2 <- finalize_workflow(rf_tune_wf_ET2, best_acc2)
+rf_final_wf_ET2
+```
+## Final fit
+
+```{r}
+#Established - use case 0
+set.seed(77439)
+rf_final_fit <- rf_final_wf0 %>%
+  last_fit(s_split, metrics = class_metrics)
+
+#Ethical - use case 1: admission
+set.seed(77439)
+rf_final_fit_ET1 <- rf_final_wf_ET1 %>%
+  last_fit(s_split, metrics = class_metrics)
+
+#Ethical - use case 2: underperforming
+set.seed(77439)
+rf_final_fit_ET2 <- rf_final_wf_ET2 %>%
+  last_fit(s_split, metrics = class_metrics)
+
+```
+
+# Model 2: K-NN
+
+## Add a validation split
+Use 30% of the training data to tune hyperparameter K
+```{r}
+set.seed(39841)
+s_train_val <- validation_split(s_train, prop = 0.7)
+```
+
+## Setting up a tuning grid
+*Explain value of tibble, now it is 23 till 199.*
+#1499
+```{r}
+knn_regr_tune_grid <- tibble(neighbors = 12:150*10-1)
+
+```
+
+## Specify a workflow 
+```{r}
+knn_regr_mod <- nearest_neighbor(neighbors = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("kknn", scale = FALSE)
+```
+
+## Normalize features (that are not categorical) & Set up a recipe
+- Normalize features to work with scale differences?
+*Explain why*
+
+```{r}
+str(simdata_features)
+
+#OLD Recipes KNN
+#Established
+knn_regr_recipe <-  recipe(avg_gr_p7_PF ~ avg_grade_p1 + gender + age + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + travel_time_minutes + study_hours_week + sidejob_hours_week + parents_uni + financial_barriers + support_environment +  Extracurr_hours_week, data = s_train) %>% step_normalize(avg_grade_p1, support_environment, financial_barriers, SS_grade_Dutch, SS_grade_English, SS_grade_Maths_A, SS_grade_Economics, SS_grade_Physics, age, study_hours_week, travel_time_minutes, sidejob_hours_week) %>%  
+  step_dummy(gender, parents_uni, Extracurr_hours_week) %>%  
+  step_downsample(avg_gr_p7_PF) 
+
+#Ethical
+knn_regr_recipe_ET1 <-  recipe(avg_gr_p7_PF ~ avg_grade_p1 + age + gender + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + study_hours_week + analytical_study_behaviour + concentration_ability + proactive_study_behaviour + study_goals_setting + study_planning + self_discipline + Extracurr_hours_week, data = s_train) %>% 
+  step_normalize(avg_grade_p1, SS_grade_Dutch, SS_grade_English, SS_grade_Maths_A, SS_grade_Economics, SS_grade_Physics, study_hours_week, analytical_study_behaviour, concentration_ability, proactive_study_behaviour, study_goals_setting, study_planning, self_discipline) %>%  
+  step_dummy(Extracurr_hours_week) %>%  
+  step_downsample(avg_gr_p7_PF) 
+
+#USE CASE 0: Baseline - established
+knn_regr_recipe <-  recipe(avg_gr_p7_PF ~ avg_grade_p1 + age + gender + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + travel_time_minutes + study_hours_week + sidejob_hours_week + parents_uni + financial_barriers + support_environment + Extracurr_hours_week, data = s_train) %>% 
+  step_normalize(avg_grade_p1, support_environment, financial_barriers, SS_grade_Dutch, SS_grade_English, SS_grade_Maths_A, SS_grade_Economics, SS_grade_Physics,  study_hours_week, sidejob_hours_week, travel_time_minutes) %>%  
+  step_dummy(gender, parents_uni,Extracurr_hours_week) %>%  
+  step_downsample(avg_gr_p7_PF) 
+  
+#USE CASE 1: ethical - admission
+knn_regr_recipe_ET1 <-  recipe(avg_gr_p7_PF ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + study_hours_week + analytical_study_behaviour + concentration_ability + proactive_study_behaviour + study_goals_setting + study_planning + self_discipline + Extracurr_hours_week, data = s_train) %>% 
+  step_normalize(avg_grade_p1, SS_grade_Dutch, SS_grade_English, SS_grade_Maths_A, SS_grade_Economics, SS_grade_Physics, study_hours_week, analytical_study_behaviour, concentration_ability, proactive_study_behaviour, study_goals_setting, study_planning, self_discipline) %>%  
+  step_dummy(Extracurr_hours_week) %>%  
+  step_downsample(avg_gr_p7_PF) 
+
+#USE CASE 2: ethical - underperforming students
+knn_regr_recipe_ET2 <-  recipe(avg_gr_p7_PF ~ avg_grade_p1 + age + gender + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + study_hours_week + sidejob_hours_week + analytical_study_behaviour + concentration_ability + proactive_study_behaviour + study_goals_setting + study_planning + self_discipline + parents_uni + financial_barriers + support_environment + Extracurr_hours_week, data = s_train) %>% 
+  step_normalize(avg_grade_p1, support_environment, financial_barriers, SS_grade_Dutch, SS_grade_English, SS_grade_Maths_A, SS_grade_Economics, SS_grade_Physics,  study_hours_week, sidejob_hours_week, analytical_study_behaviour, concentration_ability, proactive_study_behaviour, study_goals_setting, study_planning, self_discipline) %>%  
+  step_dummy(gender, parents_uni,Extracurr_hours_week) %>%  
+  step_downsample(avg_gr_p7_PF) 
+
+```
+
+##Prepare recipe
+```{r}
+#established: use case 0
+Default_train_baked <- knn_regr_recipe %>% prep(s_train) %>% bake(s_train)
+Default_train_baked %>% head()
+
+#ethical: use case 1
+Default_train_baked_ET1 <- knn_regr_recipe_ET1 %>% prep(s_train) %>% bake(s_train)
+Default_train_baked_ET1 %>% head()
+
+#ethical: use case 2
+Default_train_baked_ET2 <- knn_regr_recipe_ET2 %>% prep(s_train) %>% bake(s_train)
+Default_train_baked_ET2 %>% head()
+
+```
+
+##Check if transformation of variables (normalization) was succesful
+
+Mean should be zero and sd should be 1 
+
+```{r}
+#Established
+c(mean = mean(Default_train_baked$avg_grade_p1), 
+  sd = sd(Default_train_baked$avg_grade_p1))
+
+#Ethical - use case 1
+c(mean = mean(Default_train_baked_ET1$avg_grade_p1), 
+  sd = sd(Default_train_baked_ET1$avg_grade_p1))
+
+#Ethical - use case 2
+c(mean = mean(Default_train_baked_ET2$avg_grade_p1), 
+  sd = sd(Default_train_baked_ET2$avg_grade_p1))
+
+
+```
+
+##Predict the test values
+
+```{r}
+#Established
+Default_test_baked <- knn_regr_recipe %>% prep(s_train) %>% bake(s_test)
+Default_test_baked %>% head()
+
+#Ethical - use case 1
+Default_test_baked_ET1 <- knn_regr_recipe_ET1 %>% prep(s_train) %>% bake(s_test)
+Default_test_baked_ET1 %>% head()
+
+#Ethical - use case 2
+Default_test_baked_ET2 <- knn_regr_recipe_ET1 %>% prep(s_train) %>% bake(s_test)
+Default_test_baked_ET2 %>% head()
+```
+
+
+
+## Create a workflow object
+```{r}
+#ESTABLISHED
+knn_regr_workflow <-
+  workflow() %>% 
+  add_model(knn_regr_mod) %>% 
+  add_recipe(knn_regr_recipe)
+knn_regr_workflow
+
+#ETHICAL - use case 1
+knn_regr_workflow_ET1 <-
+  workflow() %>% 
+  add_model(knn_regr_mod) %>% 
+  add_recipe(knn_regr_recipe_ET1)
+knn_regr_workflow_ET1
+
+#ETHICAL - use case 2
+knn_regr_workflow_ET2 <-
+  workflow() %>% 
+  add_model(knn_regr_mod) %>% 
+  add_recipe(knn_regr_recipe_ET2)
+knn_regr_workflow_ET2
+
+
+```
+
+##Tune K
+ 
+Tune the parameters K
+ 
+```{r}
+#ESTABLISHED
+registerDoParallel()
+knn_regr_tune_res <- knn_regr_workflow %>% #with variables and model (knn)
+  tune_grid(resamples = s_train_val, #validation split
+            grid = knn_regr_tune_grid, #the tuning grid
+            metrics = metric_set(accuracy, sensitivity, specificity))#the metrics
+
+#ETHICAL - use case 1
+registerDoParallel()
+knn_regr_tune_res_ET1 <- knn_regr_workflow_ET1 %>% #with variables and model (knn)
+  tune_grid(resamples = s_train_val, #validation split
+            grid = knn_regr_tune_grid, #the tuning grid
+            metrics = metric_set(accuracy, sensitivity, specificity))#the metrics
+
+#ETHICAL - use case 2
+registerDoParallel()
+knn_regr_tune_res_ET2 <- knn_regr_workflow_ET2 %>% #with variables and model (knn)
+  tune_grid(resamples = s_train_val, #validation split
+            grid = knn_regr_tune_grid, #the tuning grid
+            metrics = metric_set(accuracy, sensitivity, specificity))#the metrics
+
+
+```
+
+
+## Collect metrics used to asset predictions of validation split
+ 
+```{r}
+#established
+knn_regr_tune_res %>% collect_metrics()
+
+#ethical uc1
+knn_regr_tune_res_ET1 %>% collect_metrics()
+
+#ethical uc2
+knn_regr_tune_res_ET2 %>% collect_metrics()
+
+```
+
+  
+## Plot the metrics
+
+```{r}
+
+#Font for plots
+windowsFonts(A = windowsFont("Times new Roman"))
+
+#Established
+knn_regr_tune_res %>% collect_metrics() %>% 
+  ggplot(aes(x = neighbors, y = mean)) + 
+  geom_point() + geom_line() + 
+  facet_wrap(~ .metric, scales = "free_y") + theme(axis.text=element_text(size=9), axis.title=element_text(size=9), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black")) + scale_y_continuous(labels = comma) + theme(text=element_text(family="A"))
+
+#Ethical uc1
+knn_regr_tune_res_ET1 %>% collect_metrics() %>% 
+  ggplot(aes(x = neighbors, y = mean)) + 
+  geom_point() + geom_line() + 
+  facet_wrap(~ .metric, scales = "free_y") + theme(axis.text=element_text(size=9), axis.title=element_text(size=9), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black")) + scale_y_continuous(labels = comma) + theme(text=element_text(family="A"))
+
+
+#Ethical uc2
+knn_regr_tune_res_ET2 %>% collect_metrics() %>% 
+  ggplot(aes(x = neighbors, y = mean)) + 
+  geom_point() + geom_line() + 
+  facet_wrap(~ .metric, scales = "free_y") + theme(axis.text=element_text(size=9), axis.title=element_text(size=9), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank(), axis.line = element_line(colour = "black")) + scale_y_continuous(labels = comma) + theme(text=element_text(family="A"))
+```
+
+
+#Look at metrics
+```{r}
+
+
+#established
+knn_regr_tune_res %>% 
+  show_best("accuracy", n = 40)
+
+#ethical - use case 1
+knn_regr_tune_res_ET1 %>% 
+  select_best("accuracy", n = 40)
+
+knn_regr_tune_res_ET1 %>% collect_metrics %>% select(.metric) 
+
+#ethical - use case 2 #specificity focust op fail
+knn_regr_tune_res_ET2 %>% 
+  show_best("accuracy", n = 40)
+
+#knn_regr_tune_res %>% 
+ # show_best("f_meas", n = 40)
+
+```
+ 
+# Final workflow
+
+Explain why you pick accuracy over other metrics
+
+```{r}
+#established - use case 0 #1459 = max
+registerDoParallel()
+knn_regr_best_model <- select_best(knn_regr_tune_res, metric = "accuracy")
+knn_regr_best_model
+
+#ethical- use case 1: admission
+registerDoParallel()
+knn_regr_best_model_ET1 <- select_best(knn_regr_tune_res_ET1, metric = "accuracy")
+knn_regr_best_model_ET1
+
+
+#ethical- use case 2: underperf
+registerDoParallel()
+knn_regr_best_model_ET2 <- select_best(knn_regr_tune_res_ET2, metric = "accuracy")
+knn_regr_best_model_ET2
+```
+
+```{r}
+#Established - use case 1
+knn_regr_workflow_final <- 
+  knn_regr_workflow %>% 
+  finalize_workflow(knn_regr_best_model)
+knn_regr_workflow_final 
+
+#Ethical
+knn_regr_workflow_final_ET1 <- 
+  knn_regr_workflow_ET1 %>% 
+  finalize_workflow(knn_regr_best_model_ET1)
+knn_regr_workflow_final_ET1
+
+
+#ethicalL use case 2
+knn_regr_workflow_final_ET2 <- 
+  knn_regr_workflow_ET2 %>% 
+  finalize_workflow(knn_regr_best_model_ET2)
+knn_regr_workflow_final_ET2
+
+```
+ 
+## Final fit
+
+```{r}
+
+#Established
+knn_regr_last_fit <- knn_regr_workflow_final %>% 
+  last_fit(s_split, metrics = metric_set(accuracy, sensitivity, specificity))
+knn_regr_last_fit 
+
+#Ethical - use case 1
+knn_regr_last_fit_ET1 <- knn_regr_workflow_final_ET1 %>% 
+  last_fit(s_split, metrics = metric_set(accuracy, sensitivity, specificity))
+knn_regr_last_fit_ET1
+
+
+#Ethical - use case 2
+knn_regr_last_fit_ET2 <- knn_regr_workflow_final_ET2 %>% 
+  last_fit(s_split, metrics = metric_set(accuracy, sensitivity, specificity))
+knn_regr_last_fit_ET2
+
+```
+
+# Look at predictions 
+Average grade represents the actual grades from the test set
+.pred represents the predicted grade
+```{r}
+#Established
+knn_regr_workflow_final %>% fit(s_test) 
+
+fit_est <- knn_regr_last_fit %>% collect_predictions()
+
+fit_est %>% conf_mat(truth = avg_gr_p7_PF, estimate = .pred_class)
+
+#Ethical - use case 1
+fit_eth1 <- knn_regr_last_fit_ET1 %>% collect_predictions()
+
+fit_eth1 %>% conf_mat(truth = avg_gr_p7_PF, estimate = .pred_class)
+
+#Ethical - use case 2
+fit_eth2 <- knn_regr_last_fit_ET2 %>% collect_predictions()
+
+fit_eth2 %>% conf_mat(truth = avg_gr_p7_PF, estimate = .pred_class)
+
+```
+
+
+# Compare models and select best models
+
+Important to choose error metrics that suit the problem. 
+
+Avoid R2 and correlation.
+
+If we look at MAE: the goal is to minimize the Mean Absolute Error
+
+RMSE can be heavily influenced by outliers and the observations with prediction errors will most likely dominate the RMSE. 
+The MAE is a more robust option as an alternative to the RMSE as it averages the absolute error over all test observations and does not square errors..... The objective is to minimize the MAE. However. The MAE is not insentitive to skewed RESIDUAL distributions (we found left skewed distribution........). The MAE is also lower for both models compared to the RMSE. 
+
+For the R-squared the objective is to maximize this and has the potential to reach a highest possible score of 1. A limitation however is that it is not robust like the RMSE as it only measures the correlation and not the agreement. We also want to see the Rsquared of the test set (out-of-sample R2), to prevent data leakage.??
+
+```{r}
+
+
+# knn models
+##KNN Established
+knn_test_metrics <- knn_regr_last_fit %>% collect_metrics()
+
+knn_test_metrics <- knn_test_metrics %>% 
+  select(-.estimator) %>% 
+  mutate(model = "knn_established")
+knn_test_metrics 
+
+##KNN ethical - USE CASE 1
+knn_test_metrics_ET1 <- knn_regr_last_fit_ET1 %>% collect_metrics()
+
+knn_test_metrics_ET1 <- knn_test_metrics_ET1 %>% 
+  select(-.estimator) %>% 
+  mutate(model = "knn_ethical_uc1")
+knn_test_metrics_ET1
+
+##KNN ethical - USE CASE 2
+knn_test_metrics_ET2 <- knn_regr_last_fit_ET2 %>% collect_metrics()
+
+knn_test_metrics_ET2 <- knn_test_metrics_ET2 %>% 
+  select(-.estimator) %>% 
+  mutate(model = "knn_ethical_uc2")
+knn_test_metrics_ET2
+
+#Random forest Established
+rf_test_metrics <- rf_final_fit %>% collect_metrics()
+
+rf_test_metrics <- rf_test_metrics %>% 
+  select(-.estimator) %>% 
+  mutate(model = "rf_established")
+rf_test_metrics
+
+#Random forest Ethical - USE CASE 1
+rf_test_metrics_ET1 <- rf_final_fit_ET1 %>% collect_metrics()
+
+rf_test_metrics_ET1 <- rf_test_metrics_ET1 %>% 
+  select(-.estimator) %>% 
+  mutate(model = "rf_ethical_uc1")
+rf_test_metrics_ET1
+
+#Random forest Ethical - USE CASE 2
+rf_test_metrics_ET2 <- rf_final_fit_ET2 %>% collect_metrics()
+
+rf_test_metrics_ET2 <- rf_test_metrics_ET2 %>% 
+  select(-.estimator) %>% 
+  mutate(model = "rf_ethical_uc2")
+rf_test_metrics_ET2
+
+#Compare
+bind_rows(knn_test_metrics, knn_test_metrics_ET1, knn_test_metrics_ET2, rf_test_metrics, rf_test_metrics_ET1, rf_test_metrics_ET2) %>%
+  pivot_wider(names_from = .metric, values_from = .estimate) %>% 
+  select(model,accuracy,sens,spec) %>% knit_print()
+
+```
+
+# Ordinary linear regression
+
+##select data
+
+```{r}
+#Replication data - ESTABLISHED use case 0
+simdata_features_R <- s_simdata_final1 %>% select(avg_grade_p7, avg_grade_p1, SS_grade_Dutch, SS_grade_English, SS_grade_Dutch, SS_grade_Maths_A, SS_grade_Economics, SS_grade_Physics, gender, age, support_environment, parents_uni,  financial_barriers, study_hours_week, travel_time_minutes, Extracurr_hours_week, sidejob_hours_week)
+simdata_features_R
+
+#create validation split
+set.seed(123589)
+R_split <- initial_split(simdata_features_R, prop = 0.7)
+R_split
+
+#train and test set
+#Establised
+R_train <- training(R_split)
+R_test  <- testing(R_split)
+
+#Ethical data - USE CASE 1
+simdata_features_ET1 <- s_simdata_final1 %>% select(avg_grade_p7, avg_grade_p1, SS_grade_Dutch, SS_grade_English, SS_grade_Dutch, SS_grade_Maths_A, SS_grade_Economics, SS_grade_Physics,  support_environment, parents_uni, financial_barriers, study_hours_week, Extracurr_hours_week, sidejob_hours_week, analytical_study_behaviour, concentration_ability, proactive_study_behaviour, study_goals_setting, study_planning, self_discipline)
+simdata_features_ET1
+
+#create validation split
+set.seed(123589)
+ET1_split <- initial_split(simdata_features_ET1, prop = 0.7)
+ET1_split
+
+#train and test set
+#Establised
+ET1_train <- training(ET1_split)
+ET1_test  <- testing(ET1_split)
+
+#Ethical data - USE CASE 2
+simdata_features_ET2 <- s_simdata_final1 %>% select(avg_grade_p7, avg_grade_p1 , age , gender , SS_grade_Dutch , SS_grade_English , SS_grade_Maths_A , SS_grade_Economics , SS_grade_Physics , study_hours_week , sidejob_hours_week , analytical_study_behaviour , concentration_ability , proactive_study_behaviour , study_goals_setting , study_planning , self_discipline , parents_uni , financial_barriers , support_environment , Extracurr_hours_week)
+simdata_features_ET2
+
+#create validation split
+set.seed(123589)
+ET2_split <- initial_split(simdata_features_ET2, prop = 0.7)
+ET2_split
+
+#train and test set
+#Establised
+ET2_train <- training(ET2_split)
+ET2_test  <- testing(ET2_split)
+
+```
+
+Before we proceed, let's include an ordinary linear regression model as a baseline model. We will use a model with main effects for all parameters. Let's set up the model as follows:
+With continuous dependent
+ 
+```{r}
+#Set engine
+ols_linreg <- linear_reg() %>% 
+  set_engine("lm")
+```
+
+In the preprocessing recipe, we do not need normalization as we will need below (although for OLS the effect on the estimated parameters are deterministic):
+
+```{r}
+
+#Replicated
+ols_recipe_R <- recipe(avg_grade_p7 ~., data = simdata_features_R) %>%
+step_dummy(gender, parents_uni, Extracurr_hours_week, support_environment, financial_barriers) 
+
+#summary(simdata_features)
+
+#Ethical - use case 1
+ols_recipe_ET1 <- recipe(avg_grade_p7 ~ ., data = simdata_features_ET1) %>%
+step_dummy(Extracurr_hours_week) 
+
+#Ethical - use case 2
+ols_recipe_ET2 <- recipe(avg_grade_p7 ~ ., data = simdata_features_ET2) %>%
+step_dummy(gender, parents_uni, Extracurr_hours_week, support_environment, financial_barriers) 
+```
+
+These can be combined into a workflow:
+```{r}
+#Create model
+lr_mod <- linear_reg() %>% 
+  set_engine("lm")
+
+#set workflow
+ols_wf_R <- workflow() %>% 
+  add_recipe(ols_recipe_R) %>% 
+  add_model(lr_mod)
+
+ols_wf_ET1 <- workflow() %>% 
+  add_recipe(ols_recipe_ET1) %>% 
+  add_model(lr_mod)
+
+ols_wf_ET2 <- workflow() %>% 
+  add_recipe(ols_recipe_ET2) %>% 
+  add_model(lr_mod)
+
+```
+
+We can directly train this on the training set and predict the test set (since there is no tuning to do):
+
+#Add Rsq trad & fix
+```{r}
+ols_last_fit_R <- ols_wf_R %>% 
+  last_fit(R_split, metrics = metric_set(rmse, mae))
+
+ols_last_fit_ET1 <- ols_wf_ET1 %>% 
+  last_fit(ET1_split, metrics = metric_set(rmse, mae))
+
+ols_last_fit_ET2 <- ols_wf_ET2 %>% 
+  last_fit(ET2_split, metrics = metric_set(rmse, mae))
+
+```
+# Results
+
+Here are the results, which provides our baseline performance on the test set
+
+```{r}
+ols_test_metrics <- ols_last_fit_R %>% collect_metrics()%>% 
+  select(-.estimator)%>% 
+  mutate(model = "ols_established")
+ols_test_metrics
+
+ols_test_metrics_ET1 <- ols_last_fit_ET1 %>% collect_metrics() %>% select(-.estimator)%>% mutate(model = "ols_ethical_uc1")
+ols_test_metrics_ET1
+
+ols_test_metrics_ET2 <- ols_last_fit_ET2 %>% collect_metrics()%>% select(-.estimator)%>% mutate(model = "ols_ethical_uc2")
+ols_test_metrics_ET2
+
+#Compare
+bind_rows(ols_test_metrics, ols_test_metrics_ET1, ols_test_metrics_ET2) %>%
+  pivot_wider(names_from = .metric, values_from = .estimate) %>% 
+  select(model,rmse, mae) %>% knit_print()
+
+```
+
+#Variable importance of OLS models
+```{r}
+
+ols_model_vi <- linear_reg() %>% 
+  set_engine("lm", importance = "permutation")
+
+#Replicated
+ols_vi_wf <- workflow() %>% 
+  add_model(ols_linreg) %>% 
+  add_recipe(ols_recipe_R)
+
+#set.seed(9923)
+ols_vi_fit <- ols_vi_wf %>% fit(data = R_train)
+
+ols_vi_fit %>% pull_workflow_fit() %>% vi()
+
+#Ethical - uc1
+ols_vi_wf <- workflow() %>% 
+  add_model(ols_linreg) %>% 
+  add_recipe(ols_recipe_ET1)
+
+set.seed(9923)
+ols_vi_fit1 <- ols_vi_wf %>% fit(data = ET1_train)
+
+ols_vi_fit1 %>% pull_workflow_fit() %>% vi()
+
+#Ethical - uc2
+ols_vi_wf <- workflow() %>% 
+  add_model(ols_linreg) %>% 
+  add_recipe(ols_recipe_ET2)
+
+set.seed(9923)
+ols_vi_fit2 <- ols_vi_wf %>% fit(data = ET2_train)
+
+ols_vi_fit2 %>% pull_workflow_fit() %>% vi()
+```
+
+

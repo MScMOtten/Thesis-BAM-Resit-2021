@@ -1,0 +1,566 @@
+---
+title: "BAM Thesis 2021 - Model 1 - OLS Regression"
+author: "Michelle Otten"
+date: "3-5-2021"
+output: html_document
+---
+
+#empty environment
+
+```{r}
+rm(list=ls())
+```
+
+#Install necessary packages
+```{r}
+library(readr)
+library(stargazer)
+library(dplyr) 
+library(plyr)
+library(ggplot2) 
+library(scales)
+library(GGally) #ggpairs
+library(dagitty) #for causal models
+library(ggdag) #for causal models formatting
+library(sandwich) #for standardizing the standard errors (heteroskedastiscity)
+```
+
+#Load data
+
+```{r}
+load("s_simdata_final.Rdata")
+```
+
+# 1 Multivariate OLS Regression and Model Fit
+
+The first machine learning technique used to predict student performance is a Multiple Least Squared Regression. This technique can be used to explore the relationship between a dependent variable and two or more independent variables by applying a procedure whereas the  the sum of squared residuals will be minimised relative to the predicted regression curve (Greene, 2019).
+
+The dependent variable chosen for this model is *"avg_grade_p7*, which represents the average grade obtained in period 1 till 7 of the first academic year. The dependent variables chosen for the multiple regression are: 
+
+```{r}
+summary(s_simdata_final)
+str(s_simdata_final)
+stargazer(s_simdata_final, type = "text")
+```
+
+1 * *gender*
+- The variable *gender* is a categorical variable that is measured on a dichotomous scale consisting of the options male or female.
+2 * *age*
+- represents the age of the respondent and is categorized as a continuous variable with a minimum value of 16 and a maximum of 35 years.
+3 * *avg_grade_p1 *
+- represents the average result of a student in study period 1 and is measured by means of a continuous variable ranging from 1 to 9.83 (the highest average mark obtained by a student in the entire dataset).
+4 * *support_environment*
+- measures to what extent a student has support for the study from the environment and is an ordinal categorical variable consisting of a scale of 5 items, namely: not applicable, somewhat applicable, reasonably applicable, quite strongly applicable and totally applicable.
+5 * *parents_uni*
+- Is again a dichotomous categorical variable in which the scale options "yes" or "no" indicate whether the parents of a student have a university education.
+6 * *financial_barriers*
+- Is an ordinal categorical variable that measures the extent to which a student feels that his/her financial situation will be an obstacle during the study period. Answer categories consist of: not applicable, slightly applicable, reasonably applicable, quite strongly applicable and completely applicable.
+7 * *study_hours_week*
+- Is a continuous variable that measures how many hours a student spends  per week on his/her studies on average. The minimum is 0 hours and the maximum is 80 hours per week.
+8 * *travel_time_minutes*
+- is a continuous variable and indicates how long, on average, a student is travelling to university in minutes per day on average. The minimum is 0 minutes and the maximum in the datset is 240 minutes per day (6 hours in total).
+9 * *Extracurr_hours_week*
+- Is an ordinal categorical variable in which a student could indicate on a five-point scale how many hours per week he/she spends on extracurricular activities. This variable consists of the categories: 0, 1-8, 9-16, 17-24 and 25-32 hours per week.
+10 * *sidejob_hours_week*
+- is a continuous variable whereby the student indicates how many hours he/she on average spends on a side job per week. The minimum value in the data is 0 hours per week (no part-time job) and the maximum is 70 hours per week.
+- The variables:
+11 * *SS_grade_economy, *
+12 * *SS_grade_English, *
+13 * *SS_grade_physics, *
+14 * *SS_grade_Dutch, *
+15 * *SS_grade_maths_A, *
+16 * *SS_grade_maths_B, *
+Are all continuous variables that indicate what grade a student has obtained for their final exams in secundary schools on the subjects Economy, English language, Physics, Dutch language, Maths A or Maths B (maths of type Alpa or Beta in the Dutch educational system). These secondary schools are on the Dutch "havo" and "vwo" levels, which can be explained as preperatory educational programs of a duration of respectively 5 and 6 years and which give graduated students direct access to universities of applied sciences and/or research universities. Grades on the subjects are measured on a scale from 1 to 10, from which 1 is the lowest grade possible and 10 is the highest grade possible. 
+
+### TO DO: Explain variable choice
+
+### Research hypothesis 
+The null hypothesis (H0) is: There is no significant prediction of *gem_res_tm_p7* by the independent variables. 
+The alternative hypothesis (H1) is: There is a significant prediction of *gem_res_tm_p7* by the independent variables.
+
+#The multiple regression model 
+
+## Model building
+```{r}
+summary(s_simdata_final, type = "text")
+```
+
+###Model 1: 
+```{r}
+
+summary(s_simdata_final)
+
+#linear model 1 (established)
+s.mod0 <- lm(avg_grade_p7 ~ avg_grade_p1 + gender + age + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + travel_time_minutes + study_hours_week + sidejob_hours_week + parents_uni + financial_barriers + support_environment +  Extracurr_hours_week, data = s_simdata_final)
+
+#linear model 2a (ethical - student admission)
+s.mod2 <- lm(avg_grade_p7 ~ avg_grade_p1 + age + gender + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + study_hours_week + analytical_study_behaviour + concentration_ability + proactive_study_behaviour + study_goals_setting + study_planning + self_discipline + Extracurr_hours_week, data = s_simdata_final)
+
+#linear model 2b  (ethical - underperforming students)
+s.mod3 <- lm(avg_grade_p7 ~ avg_grade_p1 + gender + age + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + study_hours_week + sidejob_hours_week + analytical_study_behaviour + concentration_ability + proactive_study_behaviour + study_goals_setting + study_planning + self_discipline + parents_uni + financial_barriers + support_environment +  Extracurr_hours_week, data = s_simdata_final)
+
+
+stargazer(s.mod0, type = "text")
+stargazer(s.mod2, type = "text")
+stargazer(s.mod3, type = "text")
+
+summary(s.mod0)
+
+```
+
+## Testing for OLS assumption violations 
+
+In order to ensure that the results of the regression model are valid, it is crucial that 6 basic assumptions of the classical linear regression model are tested The assumptions consist of A1. Linearity, A2. Full Rank and multicollinearity, A3. Exogeneity of independent variables, A4. Homoscedastiscity and uncorrelated residuals, A5. Stochastic or non-stochastic data and A6. Normal Distribution of the disturbances. The model was therefore tested on all these assumptions before it was estimated and interpreted (Field, 2018; Greene, 2019).If there is a violation, this has also been addressed.
+
+### A1. Linearity
+
+Starting with the the linearity assumption where it is assumed that relationships between the predictors (x) and outcome variable (y) are linear. Therefore, all *9* independent variables are plotted against the dependent variable *gem_res_tm_p7* to find out whether linear relationships can be detected. 
+
+```{r}
+
+##PLOTS
+#Look at the expected effects on average grades (till period 7)
+ggplot(data = s_simdata_final, aes(SS_grade_Economics, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+
+#NL --> avg grade p7
+ggplot(data = s_simdata_final, aes(SS_grade_Dutch, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+
+ggplot(data = s_simdata_final, aes(SS_grade_English, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+ggplot(data = s_simdata_final, aes(SS_grade_Maths_A, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  +
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+ggplot(data = s_simdata_final, aes(SS_grade_Maths_B, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+ggplot(data = s_simdata_final, aes(SS_grade_Physics, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+ggplot(data = s_simdata_final, aes(age, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+ggplot(data = s_simdata_final, aes(avg_grade_p1, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+ggplot(data = s_simdata_final, aes(parents_uni, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+ggplot(data = s_simdata_final, aes(financial_barriers, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+ggplot(data = s_simdata_final, aes(support_environment, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+ggplot(data = s_simdata_final, aes(study_hours_week, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+ggplot(data = s_simdata_final, aes(travel_time_minutes, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+ggplot(data = s_simdata_final, aes(sidejob_hours_week, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+ggplot(data = s_simdata_final, aes(Extracurr_hours_week, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+   theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+
+
+```
+
+#### Fix linearity violations
+
+```{r}
+
+###subset the data
+s_simdata_final1 <- subset(s_simdata_final, age <= 35)
+#save final dataset
+save(s_simdata_final1, file = "s_simdata_final1.RData")
+
+###show the plot again with subsetted data on leeftijd <35
+ggplot(data = s_simdata_final1, aes(age, avg_grade_p7)) +
+  geom_point() +
+  geom_smooth(method = "lm",colour="red", alpha = 0.2)  + 
+  geom_smooth(color = "blue", alpha = 0.2) +
+  theme_bw() +
+  labs(caption = "Figure 5.1") +
+  theme(plot.caption =  element_text(
+    hjust = 0.5, size = 12, face = "bold"))
+                                                                                                                      
+
+```
+
+For the variables *geslacht, financiën_belemmering, omgeving_hulp* and *uur_week_nevenactiviteiten* no linear relationship can be shown in the plots. However, a linear regression automatically treats each dummy category as a linear relationship, so of these variables can be assumed that they  do not violate the linearity assumption.
+
+Variables *VO_cijfer_economie*, *VO_cijfer_wiskunde_alpha*, *VO_cijfer_Engels*, *gem_res_tm_p1, VO_cijfer_wiskunde_beta* and *VO_cijfer_natuurkunde* all show notable leverages from a grade of approximately 1 to 2.5-4. These observations show that a relatively low percentage of students receive grades below 4, which appears to undermine the assumption of linearity. However, as we are interested in predicting grades on the whole scale of 0 to 10, it does not make sense to remove these leverages to increase the significance of the linear relationship. 
+
+The *leeftijd* also shows leverages starting from an age of 35 and increases till 72 (the maximum age). Removing these observations might create more significant linear relationships. Therefore a subset of the data (age <35) is taken, which lead to a a visible improvement in observed linearity and an increase of 0.02 point explained variance of the linear model (from 0.138 to 1.40).
+
+All other relationships do not seem to show a violation of the linearity assumption. 
+
+### A2. Full rank and multicollinearity
+
+The full rank violation means that there are observations in the model that are a exact linear combination of other variables.
+
+To test for this violation all pairwise correlations of all continuous variables have been plotted. Results showed no violation of the full rank assumption as no predictors were perfectly correlated with each other (Field, 2018).
+
+These plots also give information about multicollinearity which occurs when predictors are highly correlated with each other, which adds difficulty to identifying the individual importances of variables. For this reason predictors that correlate too highly should be excluded. Results showed that this was not necessary, as mostly low to moderate correlations (Field, 2018) were detected. 
+
+The low correlations ranged from zero correlation (between the travel time in minutes to university and the English grade of secondary school) to a correlation of *0.351* (between the Economics and the Maths A grade of secondary school). The latter is as expected, since it is known that these disciplines borrow from and build upon each other to a certain extent. 
+
+There are two variables that correlate moderately with each other: the maths A gradewith the physics grade in secondary school (a correlation of 0.465). This is also as expected since the content of the courses also overlap. Nevertheless, as the correlations between these subjects are not too high and it is known in practice that these are distinguishable enough,they can be considered as two individual subjects/variables.
+
+
+#### Plot pairwise correlations between variables to check for multicollinearity
+#### Q: How to test for the categorical variables?
+
+We will not plot the correlations between the categorical variables and the dependent variable (exclude: geslacht, omgeving_hulp, ouders_uni, financien_belemmering, uur_week_nevenactiviteiten en uren_bijbaan_week)
+
+
+make dummies first -1 --> hoeft niet in thesis 
+
+```{r}
+
+ggpairs(select(s_simdata_final, avg_grade_p7, avg_grade_p1, SS_grade_Dutch, SS_grade_English, SS_grade_Maths_A, SS_grade_Maths_B, SS_grade_Economics, SS_grade_Physics, study_hours_week,  travel_time_minutes, sidejob_hours_week), progress = FALSE, upper = list(continuous=wrap("cor", size = 2.5)))
+
+ggpairs(select(s_simdata_final, support_environment, parents_uni, financial_barriers), progress = FALSE, upper = list(continuous=wrap("cor", size = 2.5)))
+
+```
+
+### A3 Exogeneity of independent variables/non-auto correlation
+
+Exogeneity of independent variables includes that there should be no correlation between the disturbances and the independent variables.
+
+We can't test it --> argue why you think that is 
+
+### A4 Homoskedasticity and uncorrelated residuals
+
+Homoskedastiscity occurs when the conditional variance of the disturbance is constant. To test for this a plot was made of all the residuals in the model. From this plot it is visible that the residuals are not evenly distributed and show a pattern. The variance of the residuals seem to be higher for grades between *5.5 and 6.25*, compared to the residuals after a grade of *6.25*. Also, the residuals also seem to concentrate more after a grade of 7.5, which suggests a violation of homoskedastiscity. With the Breusch-Pagan test it can be officially ruled out whether this is the case. Results show a significant p-value (p < 0.001), which indicates that there indeed is a significant correlation between the dependent variable *gem_res_tm_p7* and the residuals and thus heteroskedastiscity is present.
+
+```{r}
+#plot the residuals of the model 
+ggplot(data = data.frame(fit = fitted(s.mod0), rsid = residuals(s.mod0)),
+       aes(fit, rsid)) +
+  geom_point() + 
+  stat_smooth(se = F) +
+  theme_bw() +
+  labs(x = "Average grade p1 to p7 fitted") +
+  labs(y = "Residuals") +
+  labs(caption = "Figure X") +
+  theme(plot.caption =  element_text(hjust = 0.5, size = 12, face = "bold"))
+
+#Do a breusch pagan test to test for the homoskedastiscity violation. 
+lmtest::bptest(s.mod0)
+```
+##### Q: Why does my plot start at grade 5.5 instead of 1?
+
+##### Fix homoskedastiscity violation
+
+The homoskedastiscity violation has been adressed by standardizing the residuals to make them robust to heteroskedastiscity. This intervention shows no drastic changes to the size of the residuals. The residuals of the predictors *omgeving_hulpHelemaal van toepassing, financien_belemmeringBeetje van toepassing, uur_week_nevenactiviteiten1 - 8, uur_week_nevenactiviteiten17 -24* and *uur_week_nevenactiviteiten25 - 32* have risen by a thousandth, the residuals of *financien_belemmeringHelemaal van toepassing* has risen from *0.042 to 0.046* and of the constant from 0.058 tot 0.061. However, these changes are not drastic. 
+
+```{r}
+
+#Make SE's robust - established
+SEBasic <- sqrt(diag(vcov(s.mod0)))
+SEWhite <- sqrt(diag(vcovHC(s.mod0, type = "HC0")))
+stargazer(s.mod0, s.mod0, se = list(SEBasic, SEWhite), type = "text", single.row = T)
+
+#Make SE's robust - admissions
+SEBasic2 <- sqrt(diag(vcov(s.mod2)))
+SEWhite2 <- sqrt(diag(vcovHC(s.mod2, type = "HC0")))
+stargazer(s.mod2, s.mod2, se = list(SEBasic2, SEWhite2), type = "text", single.row = T)
+
+#Make SE's robust - underperforming students
+SEBasic3 <- sqrt(diag(vcov(s.mod3)))
+SEWhite3 <- sqrt(diag(vcovHC(s.mod3, type = "HC0")))
+stargazer(s.mod3, s.mod3, se = list(SEBasic3, SEWhite3), type = "text", single.row = T)
+
+```
+
+#Look at the residuals after making them robust 
+
+### A5 Stochastic or non-stochastic data
+
+Stochastic or non-stochastic data refers to the random or deterministic generation of the independent variables and a violation means a random approach in data collection (Greene, 2019). This is not the case, as the observations in the dataset are generated fixed, whereby it can be concluded that there is no violation in this assumption.
+
+### A6 Normal distribution of disturbance
+
+Below the disturbance is plotted where residuals are divided by their standard deviations to make them equal to 1. Results show a normal distribution of the standardised residuals, with a small amount of outliers present beyond three standard deviations. This might indicate that these residuals are not normally distributed and are slightly skewed to the left. However, as the disturbance overall looks  normally distributed and a large sample is used, it can be expected that this will not lead to problems. A Shapiro-Wilk normality test will not be necessary (nor possible, as this test only allows for a sample size < 5000 observations).
+
+####TO DO: Check onderbouwing?
+
+```{r}
+#model 0 established
+ggplot(data = data.frame(rsid = residuals(s.mod0) / sd(residuals(s.mod0))),
+       aes(rsid)) +
+  geom_histogram(bins = 50) +
+  theme_bw() +
+  labs(x = "Standardised Residuals") +
+  labs(y = "Frequency") +
+  labs(caption = "Figure 2.2") +
+  theme(plot.caption =  element_text(hjust = 0.5, size = 12, face = "bold"))
+
+#model 2 ethical: admission
+ggplot(data = data.frame(rsid = residuals(s.mod2) / sd(residuals(s.mod2))),
+       aes(rsid)) +
+  geom_histogram(bins = 50) +
+  theme_bw() +
+  labs(x = "Standardised Residuals") +
+  labs(y = "Frequency") +
+  labs(caption = "Figure 2.2") +
+  theme(plot.caption =  element_text(hjust = 0.5, size = 12, face = "bold"))
+
+
+#model 3 ethical: underperf.
+ggplot(data = data.frame(rsid = residuals(s.mod3) / sd(residuals(s.mod3))),
+       aes(rsid)) +
+  geom_histogram(bins = 50) +
+  theme_bw() +
+  labs(x = "Standardised Residuals") +
+  labs(y = "Frequency") +
+  labs(caption = "Figure 2.2") +
+  theme(plot.caption =  element_text(hjust = 0.5, size = 12, face = "bold"))
+
+#Do shapiro test to check for normality (till sample size of 5000 --> not possible)
+#shapiro.test(residuals(s.mod0))
+```
+
+####TO TRY: subsetting on specific opleiding to see what happens with R2*
+opleiding --> rechtsgeleerdheid --> equally low R2
+
+# Estimate the regression model 
+
+```{r}
+
+#WITH SUBSET <35 Years old
+#linear model 1 (established)
+s.mod0a <- lm(avg_grade_p7 ~ avg_grade_p1 + gender + age + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + travel_time_minutes + study_hours_week + sidejob_hours_week + parents_uni + financial_barriers + support_environment +  Extracurr_hours_week, data = s_simdata_final1)
+
+#linear model 2a (ethical - student admission)
+s.mod2a <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + study_hours_week + analytical_study_behaviour + concentration_ability + proactive_study_behaviour + study_goals_setting + study_planning + self_discipline + Extracurr_hours_week, data = s_simdata_final1)
+
+#linear model 2b  (ethical - underperforming students)
+s.mod3a <- lm(avg_grade_p7 ~ avg_grade_p1 + gender + age + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + study_hours_week + sidejob_hours_week + analytical_study_behaviour + concentration_ability + proactive_study_behaviour + study_goals_setting + study_planning + self_discipline + parents_uni + financial_barriers + support_environment +  Extracurr_hours_week, data = s_simdata_final1)
+
+#with robust standard errors 
+SEBasica <- sqrt(diag(vcov(s.mod0a))) #established
+SEBasicb <- sqrt(diag(vcov(s.mod2a))) #admission
+SEBasicc <- sqrt(diag(vcov(s.mod3a))) #underperforming students
+SEWhitea <- sqrt(diag(vcovHC(s.mod0a, type = "HC0")))
+SEWhiteb <- sqrt(diag(vcovHC(s.mod2a, type = "HC0")))
+SEWhitec <- sqrt(diag(vcovHC(s.mod3a, type = "HC0")))
+
+#Final models with robust standard errors
+stargazer(s.mod0a, se = list(SEWhitea), single.row = T, type = "text")
+stargazer(s.mod2a, se = list(SEWhiteb), single.row = T, type = "text") 
+stargazer(s.mod3a, se = list(SEWhitec), single.row = T, type = "text")
+
+#ALL MODELS 
+stargazer(s.mod0a, s.mod2a, s.mod3a, se = list(SEWhitea, SEWhiteb, SEWhitec), type = "text", single.row = T)
+#stargazer(s.mod0a, s.mod2a, s.mod3a, se = list(SEWhitea, SEWhiteb, SEWhitec), single.row = T)
+
+```
+
+## Explanatory power per variable 
+```{r, results="asis"}
+#Whole model maths A
+s.mod0a <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English+ SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + gender + age + support_environment + parents_uni + financial_barriers + study_hours_week + travel_time_minutes + Extracurr_hours_week + sidejob_hours_week, data = s_simdata_final1)
+
+#Whole model maths B
+s.mod0b <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_B + SS_grade_Economics + SS_grade_Physics + gender + age + support_environment + parents_uni + financial_barriers + study_hours_week + travel_time_minutes + Extracurr_hours_week + sidejob_hours_week, data = s_simdata_final1)
+
+#explanatory power per variable
+s.mod0 <- lm(avg_grade_p7 ~ avg_grade_p1, data = s_simdata_final1)
+
+s.mod2 <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch, data = s_simdata_final1)
+
+s.mod3 <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English, data = s_simdata_final1)
+
+#Maths B
+s.mod4b <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_B, data = s_simdata_final1)
+
+s.mod5b <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_B + SS_grade_Economics, data = s_simdata_final1)
+
+#Maths A
+s.mod4a <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A, data = s_simdata_final1)
+
+s.mod5a <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics, data = s_simdata_final1)
+
+s.mod6a <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics, data = s_simdata_final1)
+
+s.mod7a <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + gender, data = s_simdata_final1)
+
+s.mod8a <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + gender + age, data = s_simdata_final1)
+
+s.mod9a <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + gender + age + support_environment , data = s_simdata_final1)
+
+s.mod00a <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + gender + age + support_environment + parents_uni, data = s_simdata_final1)
+
+s.mod01a <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + gender + age + support_environment + parents_uni + financial_barriers, data = s_simdata_final1)
+
+s.mod02a <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + gender + age + support_environment + parents_uni + financial_barriers + study_hours_week, data = s_simdata_final1)
+
+s.mod03a <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + gender + age + support_environment + parents_uni + financial_barriers + study_hours_week + travel_time_minutes, data = s_simdata_final1)
+
+s.mod04a <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + gender + age + support_environment + parents_uni + financial_barriers + study_hours_week + travel_time_minutes + Extracurr_hours_week, data = s_simdata_final1)
+
+s.mod05a <- lm(avg_grade_p7 ~ avg_grade_p1 + SS_grade_Dutch + SS_grade_English + SS_grade_Maths_A + SS_grade_Economics + SS_grade_Physics + gender + age + support_environment + parents_uni + financial_barriers + study_hours_week + travel_time_minutes + Extracurr_hours_week + sidejob_hours_week, data = s_simdata_final1)
+
+
+#look at increases in R2
+round(sapply(list(s.mod0, s.mod2, s.mod3, s.mod4a, s.mod5a, s.mod4b, s.mod5b, s.mod6a, s.mod7a, s.mod8a,s.mod9a, s.mod00a, s.mod01a, s.mod02a, s.mod03a, s.mod04a, s.mod05a, s.mod0a, s.mod0b), function(x) summary(x)$r.squared), digits = 4)
+
+```
+
+s.mod0    = 0.0552 (avg_grade_p1)            +0.0550  (5,5%)
+s.mod2    = 0.0882 (SS_grade_Dutch)          +0.0330  (3,3%)
+s.mod3    = 0.0922 (SS_grade_English)        +0.0040  (0,4%)
+s.mod4a   = 0.1131 (SS_grade_MathsA)         +0.0209  (2,09%)
+s.mod5a   = 0.1213 (SS_grade_Economics)      +0.0082  (0,82%)
+*-s.mod4b  = 0.1084 (SS_grade_MathsB)         +0.0162  (1,6%)  *
+*-s.mod5b  = 0.1178 (SS_grade_Economics)      +0.0094  (0,94%) *
+s.mod6a   = 0.1265 (SS_grade_Physics)        +0.0052  (0,52%)
+s.mod7a   = 0.1326 (gender)                  +0.0061  (0,61%)
+s.mod8a   = 0.1346 (age)                     +0.0020  (0,20%)
+s.mod9a   = 0.1347 (support_environment)     +0.0001  (0,01%)
+s.mod00a  = 0.1347 (parents_uni)             +0.0000  (0,00%)
+s.mod01a  = 0.1348 (financial_barriers)      +0.0001  (0,01%)
+s.mod02a  = 0.1350 (study_hours_week)        +0.0002  (0.02%)
+s.mod03a  = 0.1353 (travel_time_minutes)     +0.0003  (0.03%)
+s.mod04a  = 0.1358 (Extra_curr_hours_week)   +0.0005  (0,05%)
+s.mod05a  = 0.1362 (sidejob_hours_week)      +0.0004  (0,04%)
+*s.mod0a   = 0.1360 (whole model - Maths A)   *
+*(s.mod0b  = 0.1360  (whole model - Maths B)  *
+
+
+## Interpretation of the regression coëfficients
+The estimated regression model showed an explained variance (R2) of 0.136, which means that 13,6% of the variation in the average university grade in period 7 can be explained by the model. *This also means that rougly 86% of the variation has not been accounted for and possibly could be explained by other variables*. Because grades are the outcomes of student behaviour and characteristice (inherently complex to capture), this R2 can be interpreted as acceptable according social science standards *BRON*. 
+
+The intercept of the model (*Constant*) indicates a $(\beta_0)$ 3.381 (p < 0.001), which is the mean value of the dependent variable *avg_grade_p7* - average grade in period 7 - when all independent variables equal zero. This value could be interpreted as a base grade and alters when the values of the independent variables increase by one individual unit .
+
+The coefficient of the average university grade obtained in period 1 *(avg_grade_p1)* is $(\beta_1)$ 0.145 and seems to positively relate to the average grade of a student in period 7 (p < 0.001). If the average grade in period 1 increases by 1 grade point, the average grade in period 7 is expected to increase by 0.142 grade points (both on a scale of 10). This variable accounts for the biggest proportion in the R2, namely *5,5%*. This is according to expecation, as research shows that previous grades are a *good?* indicator for grades that will be obtained in the future. *bron?*
+
+The variables of the exam grades of secondary school all seem to correlate positively and significant (p < 0.001) with the dependent variable *(avg_grade_p7)*. Firstly, the variable *SS_grade_Dutch* seems to have the biggest impact, with a $(\beta_2)$ of *0.129*. This indicates that when a student's grade on the Dutch exam increases with 1 grade point, the average university grade in period 7 will increase with *0.129* grade point. This effect accounts for *3,3%* of the R2. Variable *SS_grade_English* has a smaller effect on the dependent variable and shows a $(\beta_3)$ of *0.033*, which means that an increase of 1 grade point on the English exam will lead to a *0.033* point increase in the average university grade obtained in period 7. This variable has the smallest impact on the R2 of all secondary school exam grades as it accounts for only *0,4%* of the explained variance. The third variable *SS_grade_MathsA* shows a $(\beta_4)$ of *0.067*, which indicates that an increase of one point on the Maths A exam will lead to an increase of *0.067* grade point of the dependent variable. Also, this variable is responsible for *2,09%* of R2. The variable *SS_grade_Economics* shows a $(\beta_5)$ *0.079*, which indicates that one increase point in the exam grade of Economics will amount to an increase of *0.079* point of the average university grade in period 7. This variable accounts for *0,82%* of the R2. The final secondary school exam variable is *SS_grade_Physics* and shows a $(\beta_6)$ of *0.089*. This means that an increase in the Physics exam grade will amount to an increase of *0.089* grade point in the dependent variable. This variable is responsible for a contribution of *0.52%* to the R2. Concluding it is important to note that these effects represent an average effect on the average grades in period 7 for all programs. This also means that the individual effects of specific exam grades could be higher or lower for specific training programs, depending on the relevance of the secondary school exam subject for the university program.
+
+The variable *gender* shows a positive and significant (p < 0.001) coefficient of $(\beta_7)$ 0.124, which indicates that when the student is female, the average grade obtained in period 7 will be 0.124 grade points higher than when the student is male (the reference group). This variable is responsible for 0.61% of the R2.  
+
+*Age* however seems to have a negative and significant (p<0.001) coefficient $(\beta_8)$ of -0.013, which indicates that a one year increase in age will amount to a 0.013 grade point decrease in the average university grade in period 7. This variable accounts for 0,2% of the explained variance.
+
+The variable *support_environment* seems to have a positive and significant (P < 0.05) effect on the dependent variable *avg_grade_p7*, as all categories of this variable show positive coëfficients: $(\beta_9)$ *0.036* (Somewhat appliccable), $(\beta10)$ *0.034* (Reasonably applicable), $(\beta11)$ *0.035* (Quite strongly applicable) and $(\beta_12)$ *0.034* (Totally applicable). This indicates that the average university grade obtained in period 7 will increase with *0.036* grade points when support in the student's environment is *somewhat applicable*, with *0.034* grade points when it is *reasonably applicable*, with *0.035* grade points when it is *quite strongly applicable* and *0.034* grade points when support in the environment is *totally applicable*, all compared to students whom support from their environment is *not applicable* (the reference group). This variable accounts for *0,01%* of the R2, which is very low and which proves that although significant effects have been found, these barely influence the explained variance of the dependent variable. 
+
+The variable *parents_uni* shows an insignificant coefficient of $(\beta13)$ 0.001, which indicates that this variable is not a valid predictor of the dependent variable. *This however is an interesting finding, as research has showed that this variable should help predict university? grades. This finding may be explained by .... - bron* 
+
+The same goes for the variable *financial_barriers*, from which all categories: *Somewhat Applicable, Reasonably Applicable, Quite strongly applicable and totally applicable,* respectively: $(\beta14)$0.001, $(\beta15)$ -0.005, $(\beta16)$-0.012 and $(\beta17)$ -0.055 show low and insignificant effects on the dependent variable (all in reference to the category *Not applicable*). This indicates that this variable (and thus all answer categories) are no accurate predictors of *avg_grade_p7.* *This is not as expected, since literature shows that this should indeed influence dependent variables. This difference may be explained by ... bron*
+
+The variable *study_hours_week* shows a small but significant (p<0.001) coefficient of $(\beta18)$ 0.001, which indicates that a one hour increase of total study hours per week will amount to a *0.001* grade points increase of the average university grade of period 7. This is a very small effect which  accounts for *0.02%* of the R2. 
+
+*Travel_time_minutes* also show a very small but significant (p < 0.001) effect on the dependent variable, namely a coefficient of $(\beta19)$ *0.004*, which indicates that a one minute increase in travel time will amount to a *0.004 *grade point increase of the average university grade in period 7. This thus shows that having more minutes travel time correlates with an increase in grades. This however seems not like an obvious relationship and can likely be explained by a a mediating variable *check.* This variable explains *0,03%* of the variance in *avg_grade_p7.*
+
+The variable *Extracurr_hours_week* shows to have significant (p < 0.001) and positive effects on the dependent variable for two answer categories, namely Extracurr_hours_week1 - 8 $(\beta20)$, which shows a beta of *0.068.* This value is the difference in the average grade obtained in period 7 between students who work between 1 and 8 hours per week and students that do not work. The same logic can be applied to the variable (category) *Extracurr_hours_week9 -16*  which shows a coefficient of $(\beta21)$ *0.063.* The categories $(\beta22)$ *Extracurr_hours_week17 -24* and $(\beta23)$ *Extracurr_hours_week25 - 32* however showed positive but insignificant effects, indicating that these are not accurate predictors of the dependent variable *avg_grade_p7*. Lastly, this variable accounts for *0,05%* of the R2. *COMPARE WITH WHAT WAS EXPECTED FROM DATA*
+
+The final variable $(\beta24)$ *sidejob_hours_week* shows a small but negative relationship with the dependent variable with acoëfficient of -0.003, which indicates that a one hour increase spent on a side job will amount to a 0.003 grade point decrease in the average university grade obtained in period 7. This effect is significant (p < 0.001) and adds 0,04% to the explained variance in the dependent variable *avg_grade_p7*.
+
+#Limitations of the model
+Maths A and B
+Variables did not predict the dependent variables in contrary to expectation.  
+Not enough grades to predict grades with?
+
+#References
+Greene, W. (2019). Econometric Analysis, Global Edition (8th edition). Prentice Hall, New Jersey: Pearson Education Limited.
+
+Field, A. (2018). Discovering Statistics Using IBM SPSS Statistics. Thousand Oaks, Canada: SAGE Publications.
+
+
